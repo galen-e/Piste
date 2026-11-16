@@ -69,7 +69,9 @@ function analyze(P){
 }
 function totals(S){var R=S.an.runs,t={n:R.length,time:0,dist:0,top:0,vert:0};
   R.forEach(function(r){t.time+=r.time;t.dist+=r.dist;t.vert+=r.vert;t.top=Math.max(t.top,r.top)});
-  t.avg=t.time?t.dist/t.time:0;return t}
+  if(!R.length&&S.pts.length>1){var P=S.pts,n=P.length;t.all=true;t.dist=S.an.d[n-1]||0;t.time=(P[n-1].t-P[0].t)/1000;
+    P.forEach(function(p){t.top=Math.max(t.top,p.spd)});t.vert=Math.max.apply(0,S.an.al)-Math.min.apply(0,S.an.al);t.avg=t.time?t.dist/t.time:0}
+  else t.avg=t.time?t.dist/t.time:0;return t}
 function mk(name,pts){var S={id:Date.now(),name:name,date:Date.now(),pts:pts};S.an=analyze(pts);return S}
 
 /* Recording */
@@ -82,9 +84,12 @@ function startRec(){
   watch=navigator.geolocation.watchPosition(function(p){
     var c=p.coords;rec.acc=Math.round(c.accuracy);if(c.accuracy>35)return;
     var pt={t:p.timestamp,lat:c.latitude,lon:c.longitude,alt:c.altitude==null?0:c.altitude,spd:0},L=rec.pts[rec.pts.length-1];
-    if(L){var dd=hav(L,pt),dt=(pt.t-L.t)/1000;if(dt<=0)return;rec.dist+=dd;
-      pt.spd=c.speed!=null&&c.speed>=0?c.speed:dd/dt}
-    rec.pts.push(pt);rec.top=Math.max(rec.top||0,pt.spd);rec.msg=null
+    if(L){var dd=hav(L,pt),dt=(pt.t-L.t)/1000;if(dt<=0)return;
+      if(dd/dt>40)return;
+      var sv=c.speed!=null&&c.speed>=0?c.speed:dd/dt;
+      if(dd<Math.max(5,c.accuracy*.7)&&sv<1.5){rec.cs=0;rec.msg=null;return}
+      rec.dist+=dd;pt.spd=sv}
+    rec.cs=pt.spd;rec.pts.push(pt);rec.top=Math.max(rec.top||0,pt.spd);rec.msg=null
   },function(e){if(e.code===1){err="Location is blocked. Allow location for this site in your browser settings, then start again.";stopRec(true)}else if(rec)rec.msg=e.code===2?"No GPS signal. Move to open sky.":"Still searching for GPS…"},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
   tick=setInterval(live,1000);draw()
 }
@@ -92,7 +97,7 @@ function stopRec(abort){
   if(watch!=null)navigator.geolocation.clearWatch(watch);clearInterval(tick);watch=null;tick=null;
   try{wl&&wl.release()}catch(e){}
   var r=rec;rec=null;
-  if(!abort&&r&&r.pts.length>=10){var S=mk("Ski day "+new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"}),r.pts);sessions.unshift(S2(S));save();open(0);return}
+  if(!abort&&r&&r.pts.length>=2){var S=mk("Ski day "+new Date().toLocaleDateString(undefined,{month:"short",day:"numeric"}),r.pts);sessions.unshift(S2(S));save();open(0);return}
   if(!abort)err="Not enough GPS data to build a session. Ride a little longer and stop again.";
   draw()
 }
@@ -100,7 +105,7 @@ function S2(S){var o={id:S.id,name:S.name,date:S.date,pts:S.pts};o.an=S.an;retur
 function live(){
   if(!rec)return;var L=rec.pts[rec.pts.length-1];
   var e=document.getElementById("live");if(!e)return;
-  liveMap();e.innerHTML='<div class="big">'+(L?sp(L.spd):"0.0")+'</div><div class="unit">'+UN()+' now</div>'+
+  liveMap();e.innerHTML='<div class="big">'+sp(rec.cs||0)+'</div><div class="unit">'+UN()+' now</div>'+
   '<div class="grid" style="margin-top:16px"><div class="st"><b>'+tm((Date.now()-rec.t0)/1000)+'</b><span>Elapsed</span></div>'+
   '<div class="st"><b>'+dist(rec.dist)+'</b><span>Distance</span></div>'+
   '<div class="st"><b>'+sp(rec.top||0)+'</b><span>Top '+UN()+'</span></div></div>'+
@@ -173,7 +178,7 @@ function draw(){
       st(sp(x?x.top:T.top),(x?"Run "+(sel+1)+" top ":"Top ")+UN())+st(sp(x?x.avg:T.avg),"Avg "+UN())+st(tm(x?x.time:T.time),"Run time")+
       st(dist(x?x.dist:T.dist),"Distance")+st(vert(x?x.vert:T.vert),"Vertical")+st(x?"Run "+(sel+1):T.n,x?"Selected":"Runs")+'</div>';
     h+='<div id="lmap" class="mapbox" style="height:340px"></div><div class="legend"></div><div class="leg"><span>slow</span><span>fast</span></div><h2>Elevation</h2>'+profile(S)+'<h2>Runs</h2>';
-    if(!R.length)h+='<p class="mu">No downhill runs detected. Runs need at least 20 seconds and 15 m of descent.</p>';
+    if(!R.length)h+='<p class="mu">No downhill runs detected. Runs need at least 20 seconds and 15 m of descent. The stats above cover all movement instead.</p>';
     R.forEach(function(r,i){h+='<button class="row'+(sel===i?" sel":"")+'" onclick="pick('+i+')"><span><b>Run '+(i+1)+'</b><br><span class="mu">'+tm(r.time)+' · '+dist(r.dist)+' · '+vert(r.vert)+' down</span></span><span style="text-align:right"><b>'+sp(r.top)+'</b> <span class="mu">'+UN()+' top</span><br><span class="mu">'+sp(r.avg)+' avg</span></span></button>'});
     h+='<div class="two"><button onclick="back()">Close</button><button onclick="del()">Delete session</button></div>'
   }else{
